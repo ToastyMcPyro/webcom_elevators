@@ -1,4 +1,4 @@
-# WebCom Elevators
+# webcom elevators
 
 `webcom_elevators` is a standalone elevator system for FiveM with optional ArgusAdmin/httpmanager integration.
 
