@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --bg-panel: rgba(8, 8, 14, 0.96);
+    --bg-btn: rgba(30, 30, 48, 0.9);
+    --bg-btn-hover: rgba(50, 50, 75, 0.95);
+    --border: rgba(100, 100, 160, 0.2);
+    --accent: #3B82F6;
+    --accent-glow: rgba(59, 130, 246, 0.35);
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.7);
+    --text-muted: rgba(255, 255, 255, 0.4);
+    --warning: #fbbf24;
+    --current-bg: rgba(59, 130, 246, 0.15);
+}
+
+body {
+    width: 768px;
+    height: 1024px;
+    overflow: hidden;
+    background: transparent;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.panel {
+    display: none;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border: 2px solid var(--border);
+    border-radius: 24px;
+    width: 680px;
+    max-height: 960px;
+    overflow: hidden;
+}
+
+.panel.visible {
+    display: flex;
+}
+
+/* ─── Display header (digital floor indicator) ─── */
+.display-header {
+    padding: 28px 32px 20px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+}
+
+.display-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+
+.display-current {
+    font-size: 64px;
+    font-weight: 900;
+    color: var(--accent);
+    line-height: 1;
+    text-shadow: 0 0 24px var(--accent-glow);
+    letter-spacing: -1px;
+}
+
+.display-current-label {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-top: 6px;
+}
+
+/* ─── Floor button grid (LIST mode) ─── */
+.floor-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.floor-btn {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 16px 22px;
+    background: var(--bg-btn);
+    border: 2px solid transparent;
+    border-radius: 14px;
+    transition: all 0.15s ease;
+}
+
+.floor-btn.current {
+    background: var(--current-bg);
+    border-color: var(--accent);
+}
+
+.floor-btn-num {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 900;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.floor-btn.current .floor-btn-num {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.floor-btn-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.floor-btn-label {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.floor-btn-prot {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--warning);
+    margin-top: 2px;
+}
+
+.floor-btn-icon {
+    font-size: 24px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.floor-btn.current .floor-btn-icon {
+    color: var(--accent);
+}
+
+/* ─── Up/Down mode ─── */
+.updown-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 40px 28px;
+}
+
+.updown-arrow {
+    font-size: 48px;
+    color: var(--text-muted);
+    line-height: 1;
+}
+
+.updown-num {
+    font-size: 140px;
+    font-weight: 900;
+    color: var(--accent);
+    line-height: 1;
+    text-shadow: 0 0 32px var(--accent-glow);
+}
+
+.updown-label {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+}
+
+.updown-hint {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
+
+/* ─── Hint bar ─── */
+.hint-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    padding: 18px 28px;
+    border-top: 1px solid var(--border);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.hint-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    height: 40px;
+    padding: 0 10px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    font-weight: 800;
+    color: var(--text-secondary);
+    margin-right: 8px;
+    font-size: 18px;
+}
+
+.powered-by {
+    text-align: center;
+    padding: 12px 20px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.32);
+}
+</style>
+</head>
+<body>
+<div class="panel" id="panel">
+    <!-- Digital floor display header -->
+    <div class="display-header" id="displayHeader">
+        <div class="display-title" id="title">AUFZUG</div>
+        <div class="display-current" id="currentNum">—</div>
+        <div class="display-current-label" id="currentLabel"></div>
+    </div>
+
+    <!-- List mode: floor buttons -->
+    <div class="floor-grid" id="floorList"></div>
+
+    <!-- Up/Down mode -->
+    <div class="updown-container" id="updownContainer" style="display:none;">
+        <div class="updown-arrow">▲</div>
+        <div class="updown-num" id="updownNum">0</div>
+        <div class="updown-label" id="updownLabel">—</div>
+        <div class="updown-arrow">▼</div>
+        <div class="updown-hint">↑ ↓ Pfeiltasten zum Wechseln</div>
+    </div>
+
+    <div class="hint-bar" id="hintBar">
+        <span><span class="hint-key">E</span> Auswählen</span>
+        <span><span class="hint-key">ESC</span> Schließen</span>
+    </div>
+
+    <div class="powered-by">Powered by WebCom</div>
+</div>
+
+<script>
+const panel = document.getElementById('panel');
+const title = document.getElementById('title');
+const currentNum = document.getElementById('currentNum');
+const currentLabel = document.getElementById('currentLabel');
+const floorList = document.getElementById('floorList');
+const updownContainer = document.getElementById('updownContainer');
+const updownNum = document.getElementById('updownNum');
+const updownLabel = document.getElementById('updownLabel');
+
+const protectionIcons = {
+    PIN: '🔢',
+    PASSWORD: '🔑',
+    JOB: '💼',
+    ITEM: '📦',
+};
+
+function renderFloors(floors, navMode) {
+    // Find current floor for display header
+    const current = floors.find(f => f.isCurrent);
+    if (current) {
+        currentNum.textContent = current.floorNumber;
+        currentLabel.textContent = current.label;
+    } else {
+        currentNum.textContent = '—';
+        currentLabel.textContent = '';
+    }
+
+    if (navMode === 'UPDOWN' || navMode === 'updown') {
+        floorList.style.display = 'none';
+        updownContainer.style.display = 'flex';
+
+        if (current) {
+            updownNum.textContent = current.floorNumber;
+            updownLabel.textContent = current.label;
+        }
+        return;
+    }
+
+    // List mode — floor buttons
+    floorList.style.display = 'flex';
+    updownContainer.style.display = 'none';
+    floorList.innerHTML = '';
+
+    const sorted = floors.sort((a, b) => b.floorNumber - a.floorNumber);
+    for (const floor of sorted) {
+        const el = document.createElement('div');
+        el.className = 'floor-btn' + (floor.isCurrent ? ' current' : '');
+
+        const pType = (floor.protectionType || 'NONE').toUpperCase();
+        const pIcon = pType !== 'NONE' ? protectionIcons[pType] || '🔒' : '';
+
+        el.innerHTML = `
+            <div class="floor-btn-num">${floor.floorNumber}</div>
+            <div class="floor-btn-info">
+                <div class="floor-btn-label">${floor.label}</div>
+                ${pIcon ? `<div class="floor-btn-prot">${pIcon} Geschützt</div>` : ''}
+            </div>
+            <div class="floor-btn-icon">${floor.isCurrent ? '◉' : '›'}</div>
+        `;
+
+        floorList.appendChild(el);
+    }
+}
+
+window.addEventListener('message', function(e) {
+    const d = e.data;
+    if (!d || !d.action) return;
+
+    if (d.action === 'show') {
+        title.textContent = (d.elevatorLabel || 'Aufzug').toUpperCase();
+
+        if (d.groupColor) {
+            document.documentElement.style.setProperty('--accent', d.groupColor);
+            document.documentElement.style.setProperty('--accent-glow', d.groupColor + '59');
+        }
+
+        renderFloors(d.floors || [], d.navigationMode || 'LIST');
+        panel.classList.add('visible');
+    } else if (d.action === 'hide') {
+        panel.classList.remove('visible');
+    }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcom Elevators</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <div class="nui-container" v-if="visible" :class="{ 'fade-in': visible }">
+
+            <!-- ═══ Elevator Floor Selector ═══ -->
+            <div class="panel elevator-panel" v-if="currentView === 'elevator'">
+                <div class="panel-header">
+                    <div class="header-left">
+                        <i class="fas fa-elevator"></i>
+                        <h2>{{ elevator.label || 'Aufzug' }}</h2>
+                        <span class="badge badge-floor" v-if="currentFloor">{{ currentFloor.label }}</span>
+                    </div>
+                    <button class="btn-close" @click="close"><i class="fas fa-times"></i></button>
+                </div>
+
+                <!-- Error banner -->
+                <div class="error-banner" v-if="errorMessage">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>{{ errorMessage }}</span>
+                    <button class="btn-dismiss" @click="errorMessage = ''"><i class="fas fa-times"></i></button>
+                </div>
+
+                <!-- List Navigation -->
+                <div class="panel-body" v-if="elevator.navigationMode === 'LIST' || elevator.navigationMode === 'list'">
+                    <div class="floor-list" v-if="elevator.floors && elevator.floors.length > 0">
+                        <div class="floor-card" v-for="floor in sortedFloors" :key="floor.id"
+                             :class="{
+                                 'floor-current': currentFloor && floor.id === currentFloor.id,
+                                 'floor-protected': floor.protectionType && floor.protectionType !== 'NONE' && floor.protectionType !== 'none'
+                             }"
+                             @click="selectFloor(floor)">
+                            <div class="floor-number">{{ floor.floorNumber }}</div>
+                            <div class="floor-info">
+                                <span class="floor-label">{{ floor.label }}</span>
+                                <span class="floor-protection" v-if="floor.protectionType && floor.protectionType !== 'NONE' && floor.protectionType !== 'none'">
+                                    <i :class="protectionIcon(floor.protectionType)"></i>
+                                    {{ protectionLabel(floor.protectionType) }}
+                                </span>
+                            </div>
+                            <div class="floor-action">
+                                <i class="fas fa-arrow-right" v-if="!currentFloor || floor.id !== currentFloor.id"></i>
+                                <i class="fas fa-map-marker-alt" v-else></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="empty-state" v-else>
+                        <i class="fas fa-elevator"></i>
+                        <p>Keine Etagen verfügbar</p>
+                    </div>
+                </div>
+
+                <!-- Up/Down Navigation -->
+                <div class="panel-body updown-body" v-if="elevator.navigationMode === 'UPDOWN' || elevator.navigationMode === 'updown'">
+                    <div class="updown-display">
+                        <div class="updown-current">
+                            <span class="updown-number">{{ selectedUpDownFloor ? selectedUpDownFloor.floorNumber : '?' }}</span>
+                            <span class="updown-label">{{ selectedUpDownFloor ? selectedUpDownFloor.label : '' }}</span>
+                            <span class="updown-protection" v-if="selectedUpDownFloor && selectedUpDownFloor.protectionType && selectedUpDownFloor.protectionType !== 'NONE' && selectedUpDownFloor.protectionType !== 'none'">
+                                <i :class="protectionIcon(selectedUpDownFloor.protectionType)"></i>
+                                {{ protectionLabel(selectedUpDownFloor.protectionType) }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="updown-controls">
+                        <button class="btn-updown btn-up" @click="upDownMove(1)" :disabled="upDownIndex >= sortedFloors.length - 1">
+                            <i class="fas fa-chevron-up"></i>
+                        </button>
+                        <button class="btn-updown btn-confirm" @click="selectFloor(selectedUpDownFloor)"
+                                :disabled="!selectedUpDownFloor || (currentFloor && selectedUpDownFloor.id === currentFloor.id)">
+                            <i class="fas fa-check"></i> Fahren
+                        </button>
+                        <button class="btn-updown btn-down" @click="upDownMove(-1)" :disabled="upDownIndex <= 0">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-powered-by">Powered by WebCom</div>
+            </div>
+
+            <!-- ═══ PIN Entry ═══ -->
+            <div class="panel pin-panel" v-if="currentView === 'pin'">
+                <div class="panel-header">
+                    <div class="header-left">
+                        <i class="fas fa-lock"></i>
+                        <h2>PIN eingeben</h2>
+                    </div>
+                    <button class="btn-close" @click="cancelProtection"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="panel-body pin-body">
+                    <div class="pin-display">
+                        <span class="pin-dot" v-for="i in 6" :key="i"
+                              :class="{ filled: pinInput.length >= i }"></span>
+                    </div>
+                    <div class="pin-error" v-if="pinError">{{ pinError }}</div>
+                    <div class="pin-keypad">
+                        <button class="pin-key" v-for="n in [1,2,3,4,5,6,7,8,9]" :key="n"
+                                @click="pinPress(n)" :disabled="pinInput.length >= 6">{{ n }}</button>
+                        <button class="pin-key pin-key-clear" @click="pinInput = ''; pinError = ''">
+                            <i class="fas fa-eraser"></i>
+                        </button>
+                        <button class="pin-key" @click="pinPress(0)" :disabled="pinInput.length >= 6">0</button>
+                        <button class="pin-key pin-key-submit" @click="submitPin" :disabled="pinInput.length < 4 || pinLoading">
+                            <i class="fas fa-check"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-powered-by">Powered by WebCom</div>
+            </div>
+
+            <!-- ═══ Password Entry ═══ -->
+            <div class="panel password-panel" v-if="currentView === 'password'">
+                <div class="panel-header">
+                    <div class="header-left">
+                        <i class="fas fa-key"></i>
+                        <h2>Passwort eingeben</h2>
+                    </div>
+                    <button class="btn-close" @click="cancelProtection"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="panel-body password-body">
+                    <div class="form-group">
+                        <input type="password" v-model="passwordInput" class="form-input password-input"
+                               placeholder="Passwort..." @keyup.enter="submitPassword" autofocus>
+                    </div>
+                    <div class="pin-error" v-if="passwordError">{{ passwordError }}</div>
+                    <button class="btn btn-primary btn-lg" @click="submitPassword" :disabled="!passwordInput || passwordLoading">
+                        <i class="fas fa-unlock"></i> Bestätigen
+                    </button>
+                </div>
+                <div class="panel-powered-by">Powered by WebCom</div>
+            </div>
+
+            <!-- ═══ Admin Panel ═══ -->
+            <div class="panel admin-panel" v-if="currentView === 'admin'">
+                <div class="panel-header">
+                    <div class="header-left">
+                        <i class="fas fa-cogs"></i>
+                        <h2>Aufzug-Verwaltung</h2>
+                    </div>
+                    <button class="btn-close" @click="close"><i class="fas fa-times"></i></button>
+                </div>
+
+                <div class="admin-layout">
+                    <div class="admin-sidebar">
+                        <button class="sidebar-tab" :class="{ active: adminTab === 'overview' }" @click="adminTab = 'overview'">
+                            <i class="fas fa-list"></i> <span>Übersicht</span>
+                        </button>
+                        <button class="sidebar-tab" :class="{ active: adminTab === 'groups' }" @click="adminTab = 'groups'">
+                            <i class="fas fa-layer-group"></i> <span>Gruppen</span>
+                        </button>
+                        <button class="sidebar-tab" :class="{ active: adminTab === 'creator' }" @click="adminTab = 'creator'; resetCreator()">
+                            <i class="fas fa-plus-circle"></i> <span>Erstellen</span>
+                        </button>
+                        <button class="sidebar-tab" :class="{ active: adminTab === 'editor' }" v-if="editorElevator" @click="adminTab = 'editor'">
+                            <i class="fas fa-edit"></i> <span>Editor</span>
+                        </button>
+                    </div>
+
+                    <div class="admin-content">
+
+                        <!-- Admin: Overview -->
+                        <div class="panel-body" v-if="adminTab === 'overview'">
+                            <div class="admin-elevator-list" v-if="adminData.elevators && adminData.elevators.length > 0">
+                                <div class="admin-elevator-card" v-for="elev in adminData.elevators" :key="elev.id"
+                                     :class="{ 'elevator-inactive': !elev.isActive }">
+                                    <div class="elevator-header-row">
+                                        <span class="elevator-name">{{ elev.label }}</span>
+                                        <span class="badge badge-group" v-if="elev.groupLabel">{{ elev.groupLabel }}</span>
+                                        <span class="badge badge-count">{{ elev.floors ? elev.floors.length : 0 }} Etagen</span>
+                                        <span class="badge badge-nav">{{ elev.navigationMode }}</span>
+                                    </div>
+                                    <div class="elevator-details">
+                                        <span>ID: #{{ elev.id }}</span>
+                                        <span>Name: {{ elev.name }}</span>
+                                        <span v-if="elev.cooldownMs">Cooldown: {{ elev.cooldownMs }}ms</span>
+                                    </div>
+                                    <div class="elevator-admin-actions">
+                                        <button class="btn btn-sm btn-primary" @click="editElevator(elev)" title="Bearbeiten">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button class="btn btn-sm" :class="elev.isActive ? 'btn-warning' : 'btn-success'"
+                                                @click="toggleElevator(elev.id)" :title="elev.isActive ? 'Deaktivieren' : 'Aktivieren'">
+                                            <i :class="elev.isActive ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" @click="confirmDeleteElevator(elev)" title="Löschen">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="empty-state" v-else>
+                                <i class="fas fa-elevator"></i>
+                                <p>Keine Aufzüge vorhanden</p>
+                            </div>
+                        </div>
+
+                        <!-- Admin: Groups -->
+                        <div class="panel-body" v-if="adminTab === 'groups'">
+                            <div class="group-list" v-if="adminData.groups && adminData.groups.length > 0">
+                                <div class="group-card" v-for="group in adminData.groups" :key="group.id">
+                                    <div class="group-color" :style="{ background: group.color || '#3B82F6' }"></div>
+                                    <div class="group-info">
+                                        <h3>{{ group.label }}</h3>
+                                        <span class="group-name">{{ group.name }}</span>
+                                        <span class="group-desc" v-if="group.description">{{ group.description }}</span>
+                                    </div>
+                                    <div class="group-actions">
+                                        <button class="btn btn-sm btn-primary" @click="editGroup(group)">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" @click="confirmDeleteGroup(group)">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="empty-state" v-else>
+                                <i class="fas fa-layer-group"></i>
+                                <p>Keine Gruppen vorhanden</p>
+                            </div>
+
+                            <!-- Create Group -->
+                            <div class="section-divider"></div>
+                            <h3 class="section-title"><i class="fas fa-plus"></i> Neue Gruppe</h3>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Name (intern)</label>
+                                    <input type="text" v-model="newGroup.name" class="form-input" placeholder="z.B. hotel_elevator">
+                                </div>
+                                <div class="form-group">
+                                    <label>Label</label>
+                                    <input type="text" v-model="newGroup.label" class="form-input" placeholder="z.B. Hotel Aufzüge">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Beschreibung</label>
+                                    <input type="text" v-model="newGroup.description" class="form-input" placeholder="Optional...">
+                                </div>
+                                <div class="form-group form-group-sm">
+                                    <label>Farbe</label>
+                                    <input type="color" v-model="newGroup.color" class="form-input form-input-color">
+                                </div>
+                            </div>
+                            <button class="btn btn-success" @click="createGroup" :disabled="!newGroup.name || !newGroup.label">
+                                <i class="fas fa-plus"></i> Gruppe erstellen
+                            </button>
+                        </div>
+
+                        <!-- Admin: Creator Wizard -->
+                        <div class="panel-body" v-if="adminTab === 'creator'">
+                            <div class="creator-wizard">
+                                <div class="creator-steps">
+                                    <div class="step" v-for="s in 4" :key="s"
+                                         :class="{ active: creatorStep === s, done: creatorStep > s }">
+                                        <div class="step-number">{{ s }}</div>
+                                        <span class="step-label">{{ creatorStepLabels[s-1] }}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Step 1: Group -->
+                                <div class="creator-content" v-if="creatorStep === 1">
+                                    <h3>Gruppe wählen</h3>
+                                    <p class="hint">Wähle eine bestehende Gruppe oder erstelle eine neue.</p>
+                                    <div class="form-group">
+                                        <label>Gruppe</label>
+                                        <select v-model="creator.groupId" class="form-input">
+                                            <option :value="null">-- Gruppe wählen --</option>
+                                            <option v-for="g in adminData.groups" :key="g.id" :value="g.id">{{ g.label }}</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2: Basic Info -->
+                                <div class="creator-content" v-if="creatorStep === 2">
+                                    <h3>Aufzug-Informationen</h3>
+                                    <div class="form-group">
+                                        <label>Interner Name</label>
+                                        <input type="text" v-model="creator.name" class="form-input" placeholder="z.B. hotel_main">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Anzeigename</label>
+                                        <input type="text" v-model="creator.label" class="form-input" placeholder="z.B. Hotel Hauptaufzug">
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label>Navigation</label>
+                                            <select v-model="creator.navigationMode" class="form-input">
+                                                <option value="LIST">Liste</option>
+                                                <option value="UPDOWN">Hoch/Runter</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Cooldown (ms)</label>
+                                            <input type="number" v-model.number="creator.cooldownMs" class="form-input" placeholder="5000">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3: Floors -->
+                                <div class="creator-content" v-if="creatorStep === 3">
+                                    <h3>Etagen</h3>
+                                    <p class="hint">Füge Etagen hinzu. Jede Etage braucht eine Position und einen optionalen Interaktionspunkt.</p>
+                                    <div class="floor-editor-list" v-if="creator.floors.length > 0">
+                                        <div class="floor-editor-card" v-for="(f, i) in creator.floors" :key="i">
+                                            <div class="floor-editor-header">
+                                                <span class="floor-editor-num">{{ f.floorNumber }}</span>
+                                                <span class="floor-editor-label">{{ f.label }}</span>
+                                                <button class="btn btn-sm btn-danger" @click="creator.floors.splice(i, 1)">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                            <div class="floor-editor-points">
+                                                <span class="point-badge" v-if="f.position">
+                                                    <i class="fas fa-map-pin"></i> Pos: {{ f.position.x.toFixed(1) }}, {{ f.position.y.toFixed(1) }}, {{ f.position.z.toFixed(1) }}
+                                                </span>
+                                                <span class="point-badge" v-if="f.interactionPoint">
+                                                    <i class="fas fa-crosshairs"></i> Int: {{ f.interactionPoint.x.toFixed(1) }}, {{ f.interactionPoint.y.toFixed(1) }}, {{ f.interactionPoint.z.toFixed(1) }}
+                                                </span>
+                                                <span class="protection-badge" v-if="f.protectionType && f.protectionType !== 'NONE'">
+                                                    <i :class="protectionIcon(f.protectionType)"></i> {{ protectionLabel(f.protectionType) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Add Floor Form -->
+                                    <div class="add-floor-form">
+                                        <h4><i class="fas fa-plus"></i> Etage hinzufügen</h4>
+                                        <div class="form-row">
+                                            <div class="form-group form-group-sm">
+                                                <label>Nummer</label>
+                                                <input type="number" v-model.number="newFloor.floorNumber" class="form-input">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Label</label>
+                                                <input type="text" v-model="newFloor.label" class="form-input" placeholder="z.B. Erdgeschoss">
+                                            </div>
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Position (Teleportziel)</label>
+                                                <div class="point-selector">
+                                                    <div class="point-display" v-if="newFloor.position">
+                                                        X: {{ newFloor.position.x.toFixed(1) }}, Y: {{ newFloor.position.y.toFixed(1) }}, Z: {{ newFloor.position.z.toFixed(1) }}
+                                                    </div>
+                                                    <span v-else class="text-muted">Nicht gesetzt</span>
+                                                    <button class="btn btn-primary btn-sm" @click="selectPoint('floorPosition')">
+                                                        <i class="fas fa-crosshairs"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Interaktionspunkt</label>
+                                                <div class="point-selector">
+                                                    <div class="point-display" v-if="newFloor.interactionPoint">
+                                                        X: {{ newFloor.interactionPoint.x.toFixed(1) }}, Y: {{ newFloor.interactionPoint.y.toFixed(1) }}, Z: {{ newFloor.interactionPoint.z.toFixed(1) }}
+                                                    </div>
+                                                    <span v-else class="text-muted">Nicht gesetzt (= Position)</span>
+                                                    <button class="btn btn-primary btn-sm" @click="selectPoint('floorInteraction')">
+                                                        <i class="fas fa-crosshairs"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Schutz</label>
+                                                <select v-model="newFloor.protectionType" class="form-input">
+                                                    <option value="NONE">Kein Schutz</option>
+                                                    <option value="PIN">PIN</option>
+                                                    <option value="PASSWORD">Passwort</option>
+                                                    <option value="JOB">Job</option>
+                                                    <option value="ITEM">Item</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group" v-if="newFloor.protectionType === 'PIN'">
+                                                <label>PIN (4-6 Ziffern)</label>
+                                                <input type="text" v-model="newFloor.protectionValue" class="form-input" placeholder="1234" maxlength="6">
+                                            </div>
+                                            <div class="form-group" v-if="newFloor.protectionType === 'PASSWORD'">
+                                                <label>Passwort</label>
+                                                <input type="text" v-model="newFloor.protectionValue" class="form-input" placeholder="g3h31m">
+                                            </div>
+                                            <div class="form-group" v-if="newFloor.protectionType === 'JOB'">
+                                                <label>Job</label>
+                                                <div class="searchable-select">
+                                                    <input type="text" v-model="jobSearch" class="form-input" placeholder="Job suchen..."
+                                                           v-if="!newFloor.protectionValue">
+                                                    <div class="select-dropdown" v-if="!newFloor.protectionValue && (jobSearch || jobSearch === '')">
+                                                        <div class="select-option" v-for="j in filteredJobs" :key="j.name"
+                                                             @click="newFloor.protectionValue = j.name; jobSearch = ''">
+                                                            <i class="fas fa-briefcase"></i>
+                                                            <span class="option-label">{{ j.label }}</span>
+                                                            <span class="option-name">{{ j.name }}</span>
+                                                        </div>
+                                                        <div class="select-option select-empty" v-if="filteredJobs.length === 0">
+                                                            Keine Jobs gefunden
+                                                        </div>
+                                                    </div>
+                                                    <div class="selected-value" v-if="newFloor.protectionValue">
+                                                        <i class="fas fa-briefcase"></i>
+                                                        <span>{{ getJobLabel(newFloor.protectionValue) }} ({{ newFloor.protectionValue }})</span>
+                                                        <button class="btn-clear" @click="newFloor.protectionValue = ''; newFloor.protectionRank = 0">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="form-group" v-if="newFloor.protectionType === 'JOB'">
+                                                <label>Min. Rang</label>
+                                                <select v-model.number="newFloor.protectionRank" class="form-input">
+                                                    <option :value="0">0 – Alle</option>
+                                                    <option v-for="gr in selectedJobGrades" :key="gr.level" :value="gr.level">
+                                                        {{ gr.level }} – {{ gr.name }}
+                                                    </option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group" v-if="newFloor.protectionType === 'ITEM'">
+                                                <label>Item</label>
+                                                <div class="searchable-select">
+                                                    <input type="text" v-model="itemSearch" class="form-input" placeholder="Item suchen..."
+                                                           v-if="!newFloor.protectionValue">
+                                                    <div class="select-dropdown" v-if="!newFloor.protectionValue && (itemSearch || itemSearch === '')">
+                                                        <div class="select-option" v-for="it in filteredItems" :key="it.name"
+                                                             @click="newFloor.protectionValue = it.name; itemSearch = ''">
+                                                            <img :src="it.imagePath || ('https://cfx-nui-ox_inventory/web/images/' + it.image)"
+                                                                 class="item-img" @error="$event.target.style.display='none'">
+                                                            <span class="option-label">{{ it.label }}</span>
+                                                            <span class="option-name">{{ it.name }}</span>
+                                                        </div>
+                                                        <div class="select-option select-empty" v-if="filteredItems.length === 0">
+                                                            Keine Items gefunden
+                                                        </div>
+                                                    </div>
+                                                    <div class="selected-value" v-if="newFloor.protectionValue">
+                                                        <img :src="getItemImagePath(newFloor.protectionValue)"
+                                                             class="item-img" @error="$event.target.style.display='none'">
+                                                        <span>{{ newFloor.protectionValue }}</span>
+                                                        <button class="btn-clear" @click="newFloor.protectionValue = ''">
+                                                            <i class="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="form-group" v-if="newFloor.protectionType === 'ITEM'">
+                                                <label>
+                                                    <input type="checkbox" v-model="newFloor.protectionConsume"> Item verbrauchen
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-success btn-sm" @click="addCreatorFloor"
+                                                :disabled="!newFloor.label || !newFloor.position">
+                                            <i class="fas fa-plus"></i> Etage hinzufügen
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Step 4: Review -->
+                                <div class="creator-content" v-if="creatorStep === 4">
+                                    <h3>Überprüfung</h3>
+                                    <div class="review-summary">
+                                        <div class="review-row"><span>Gruppe:</span><strong>{{ getGroupLabel(creator.groupId) }}</strong></div>
+                                        <div class="review-row"><span>Name:</span><strong>{{ creator.name }}</strong></div>
+                                        <div class="review-row"><span>Label:</span><strong>{{ creator.label }}</strong></div>
+                                        <div class="review-row"><span>Navigation:</span><strong>{{ creator.navigationMode }}</strong></div>
+                                        <div class="review-row"><span>Cooldown:</span><strong>{{ creator.cooldownMs }}ms</strong></div>
+                                        <div class="review-row"><span>Etagen:</span><strong>{{ creator.floors.length }}</strong></div>
+                                    </div>
+                                    <div class="review-floors">
+                                        <div class="review-floor" v-for="f in creator.floors" :key="f.floorNumber">
+                                            <span class="review-floor-num">{{ f.floorNumber }}</span>
+                                            <span>{{ f.label }}</span>
+                                            <span class="protection-badge" v-if="f.protectionType !== 'NONE'">
+                                                <i :class="protectionIcon(f.protectionType)"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Creator Navigation -->
+                                <div class="creator-nav">
+                                    <button class="btn btn-secondary" v-if="creatorStep > 1" @click="creatorStep--">
+                                        <i class="fas fa-arrow-left"></i> Zurück
+                                    </button>
+                                    <div class="spacer"></div>
+                                    <button class="btn btn-primary" v-if="creatorStep < 4" @click="creatorStep++"
+                                            :disabled="!canProceedCreator">
+                                        Weiter <i class="fas fa-arrow-right"></i>
+                                    </button>
+                                    <button class="btn btn-success" v-if="creatorStep === 4" @click="submitCreator"
+                                            :disabled="creator.floors.length === 0">
+                                        <i class="fas fa-check"></i> Aufzug erstellen
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Admin: Editor -->
+                        <div class="panel-body" v-if="adminTab === 'editor' && editorElevator">
+                            <div class="editor-form">
+                                <div class="editor-section">
+                                    <h3><i class="fas fa-info-circle"></i> Grunddaten</h3>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label>Interner Name</label>
+                                            <input type="text" :value="editorElevator.name" disabled class="form-input form-input-disabled">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Label</label>
+                                            <input type="text" v-model="editorElevator.label" class="form-input">
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label>Gruppe</label>
+                                            <select v-model="editorElevator.groupId" class="form-input">
+                                                <option v-for="g in adminData.groups" :key="g.id" :value="g.id">{{ g.label }}</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Navigation</label>
+                                            <select v-model="editorElevator.navigationMode" class="form-input">
+                                                <option value="LIST">Liste</option>
+                                                <option value="UPDOWN">Hoch/Runter</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Cooldown (ms)</label>
+                                            <input type="number" v-model.number="editorElevator.cooldownMs" class="form-input">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Editor: Floors -->
+                                <div class="editor-section">
+                                    <h3><i class="fas fa-layer-group"></i> Etagen</h3>
+                                    <div class="floor-editor-list" v-if="editorElevator.floors && editorElevator.floors.length > 0">
+                                        <div class="floor-editor-card" v-for="floor in editorElevator.floors" :key="floor.id">
+                                            <div class="floor-editor-header">
+                                                <span class="floor-editor-num">{{ floor.floorNumber }}</span>
+                                                <input type="text" v-model="floor.label" class="form-input form-input-sm floor-label-input">
+                                                <button class="btn btn-sm btn-primary" @click="saveEditorFloor(floor)" title="Speichern">
+                                                    <i class="fas fa-save"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-danger" @click="deleteEditorFloor(floor.id)" title="Löschen">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                            <div class="floor-editor-points">
+                                                <div class="point-selector-inline">
+                                                    <span class="point-badge" v-if="floor.position">
+                                                        <i class="fas fa-map-pin"></i> {{ floor.position.x.toFixed(1) }}, {{ floor.position.y.toFixed(1) }}, {{ floor.position.z.toFixed(1) }}
+                                                    </span>
+                                                    <button class="btn btn-sm btn-primary" @click="selectEditorFloorPoint(floor, 'position')">
+                                                        <i class="fas fa-crosshairs"></i> Pos
+                                                    </button>
+                                                    <button class="btn btn-sm btn-primary" @click="selectEditorFloorPoint(floor, 'interaction')">
+                                                        <i class="fas fa-crosshairs"></i> Int
+                                                    </button>
+                                                </div>
+                                                <div class="floor-protection-inline">
+                                                    <select v-model="floor.protectionType" class="form-input form-input-sm">
+                                                        <option value="NONE">Kein Schutz</option>
+                                                        <option value="PIN">PIN</option>
+                                                        <option value="PASSWORD">Passwort</option>
+                                                        <option value="JOB">Job</option>
+                                                        <option value="ITEM">Item</option>
+                                                    </select>
+                                                    <!-- PIN value -->
+                                                    <input v-if="floor.protectionType === 'PIN'" type="text"
+                                                           :value="floor.protectionData ? floor.protectionData.pin : ''"
+                                                           @input="if(!floor.protectionData) floor.protectionData = {}; floor.protectionData.pin = $event.target.value"
+                                                           class="form-input form-input-sm" placeholder="PIN" maxlength="6">
+                                                    <!-- Password value -->
+                                                    <input v-if="floor.protectionType === 'PASSWORD'" type="text"
+                                                           :value="floor.protectionData ? floor.protectionData.password : ''"
+                                                           @input="if(!floor.protectionData) floor.protectionData = {}; floor.protectionData.password = $event.target.value"
+                                                           class="form-input form-input-sm" placeholder="Passwort">
+                                                    <!-- JOB picker -->
+                                                    <div v-if="floor.protectionType === 'JOB'" class="searchable-select searchable-select-sm">
+                                                        <input type="text" v-model="editorJobSearch" class="form-input form-input-sm"
+                                                               placeholder="Job suchen..."
+                                                               v-if="!floor.protectionData || !floor.protectionData.job">
+                                                        <div class="select-dropdown" v-if="(!floor.protectionData || !floor.protectionData.job)">
+                                                            <div class="select-option" v-for="j in filteredEditorJobs" :key="j.name"
+                                                                 @click="if(!floor.protectionData) floor.protectionData = {}; floor.protectionData.job = j.name; floor.protectionData.minRank = 0; editorJobSearch = ''">
+                                                                <i class="fas fa-briefcase"></i>
+                                                                <span class="option-label">{{ j.label }}</span>
+                                                                <span class="option-name">{{ j.name }}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="selected-value selected-value-sm" v-if="floor.protectionData && floor.protectionData.job">
+                                                            <i class="fas fa-briefcase"></i>
+                                                            <span>{{ getJobLabel(floor.protectionData.job) }}</span>
+                                                            <button class="btn-clear" @click="floor.protectionData.job = ''; floor.protectionData.minRank = 0">
+                                                                <i class="fas fa-times"></i>
+                                                            </button>
+                                                        </div>
+                                                        <select v-if="floor.protectionData && floor.protectionData.job"
+                                                                v-model.number="floor.protectionData.minRank"
+                                                                class="form-input form-input-sm" style="margin-top:4px">
+                                                            <option :value="0">Rang 0 – Alle</option>
+                                                            <option v-for="gr in getJobGrades(floor.protectionData.job)" :key="gr.level" :value="gr.level">
+                                                                {{ gr.level }} – {{ gr.name }}
+                                                            </option>
+                                                        </select>
+                                                    </div>
+                                                    <!-- ITEM picker -->
+                                                    <div v-if="floor.protectionType === 'ITEM'" class="searchable-select searchable-select-sm">
+                                                        <input type="text" v-model="editorItemSearch" class="form-input form-input-sm"
+                                                               placeholder="Item suchen..."
+                                                               v-if="!floor.protectionData || !floor.protectionData.item">
+                                                        <div class="select-dropdown" v-if="(!floor.protectionData || !floor.protectionData.item)">
+                                                            <div class="select-option" v-for="it in filteredEditorItems" :key="it.name"
+                                                                 @click="if(!floor.protectionData) floor.protectionData = {}; floor.protectionData.item = it.name; floor.protectionData.consume = false; editorItemSearch = ''">
+                                                                <img :src="it.imagePath || ('https://cfx-nui-ox_inventory/web/images/' + it.image)"
+                                                                     class="item-img" @error="$event.target.style.display='none'">
+                                                                <span class="option-label">{{ it.label }}</span>
+                                                                <span class="option-name">{{ it.name }}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div class="selected-value selected-value-sm" v-if="floor.protectionData && floor.protectionData.item">
+                                                            <img :src="getItemImagePath(floor.protectionData.item)"
+                                                                 class="item-img" @error="$event.target.style.display='none'">
+                                                            <span>{{ floor.protectionData.item }}</span>
+                                                            <button class="btn-clear" @click="floor.protectionData.item = ''">
+                                                                <i class="fas fa-times"></i>
+                                                            </button>
+                                                        </div>
+                                                        <label v-if="floor.protectionData && floor.protectionData.item" style="margin-top:4px;font-size:12px">
+                                                            <input type="checkbox" v-model="floor.protectionData.consume"> Verbrauchen
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Add floor to existing elevator -->
+                                    <div class="add-floor-form" v-if="editorAddingFloor" style="margin-top: 12px; padding: 12px; border: 1px solid rgba(80,80,120,0.3); border-radius: 10px;">
+                                        <h4><i class="fas fa-plus"></i> Neue Etage hinzufügen</h4>
+                                        <div class="form-row">
+                                            <div class="form-group form-group-sm">
+                                                <label>Nummer</label>
+                                                <input type="number" v-model.number="editorNewFloor.floorNumber" class="form-input">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Label</label>
+                                                <input type="text" v-model="editorNewFloor.label" class="form-input" placeholder="z.B. Erdgeschoss">
+                                            </div>
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Position (Teleportziel)</label>
+                                                <div class="point-selector">
+                                                    <div class="point-display" v-if="editorNewFloor.position">
+                                                        X: {{ editorNewFloor.position.x.toFixed(1) }}, Y: {{ editorNewFloor.position.y.toFixed(1) }}, Z: {{ editorNewFloor.position.z.toFixed(1) }}
+                                                    </div>
+                                                    <span v-else class="text-muted">Nicht gesetzt</span>
+                                                    <button class="btn btn-primary btn-sm" @click="selectPoint('editorNewFloorPosition')">
+                                                        <i class="fas fa-crosshairs"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Interaktionspunkt</label>
+                                                <div class="point-selector">
+                                                    <div class="point-display" v-if="editorNewFloor.interactionPoint">
+                                                        X: {{ editorNewFloor.interactionPoint.x.toFixed(1) }}, Y: {{ editorNewFloor.interactionPoint.y.toFixed(1) }}, Z: {{ editorNewFloor.interactionPoint.z.toFixed(1) }}
+                                                    </div>
+                                                    <span v-else class="text-muted">Nicht gesetzt (= Position)</span>
+                                                    <button class="btn btn-primary btn-sm" @click="selectPoint('editorNewFloorInteraction')">
+                                                        <i class="fas fa-crosshairs"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Schutz</label>
+                                                <select v-model="editorNewFloor.protectionType" class="form-input">
+                                                    <option value="NONE">Kein Schutz</option>
+                                                    <option value="PIN">PIN</option>
+                                                    <option value="PASSWORD">Passwort</option>
+                                                    <option value="JOB">Job</option>
+                                                    <option value="ITEM">Item</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group" v-if="editorNewFloor.protectionType === 'PIN'">
+                                                <label>PIN (4-6 Ziffern)</label>
+                                                <input type="text" v-model="editorNewFloor.protectionValue" class="form-input" placeholder="1234" maxlength="6">
+                                            </div>
+                                            <div class="form-group" v-if="editorNewFloor.protectionType === 'PASSWORD'">
+                                                <label>Passwort</label>
+                                                <input type="text" v-model="editorNewFloor.protectionValue" class="form-input" placeholder="geheim">
+                                            </div>
+                                        </div>
+                                        <div style="display:flex;gap:8px;margin-top:8px;">
+                                            <button class="btn btn-success btn-sm" @click="submitEditorNewFloor"
+                                                    :disabled="!editorNewFloor.label || !editorNewFloor.position">
+                                                <i class="fas fa-check"></i> Hinzufügen
+                                            </button>
+                                            <button class="btn btn-secondary btn-sm" @click="cancelEditorNewFloor">
+                                                <i class="fas fa-times"></i> Abbrechen
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button v-if="!editorAddingFloor" class="btn btn-success btn-sm" @click="addFloorToEditor" style="margin-top:8px;">
+                                        <i class="fas fa-plus"></i> Etage hinzufügen
+                                    </button>
+                                </div>
+
+                                <div class="editor-actions">
+                                    <button class="btn btn-secondary" @click="editorElevator = null; adminTab = 'overview'">
+                                        <i class="fas fa-times"></i> Abbrechen
+                                    </button>
+                                    <button class="btn btn-success" @click="saveEditor">
+                                        <i class="fas fa-save"></i> Speichern
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="panel-powered-by">Powered by WebCom</div>
+            </div>
+
+            <!-- ═══ Delete Confirmation Modal ═══ -->
+            <div class="modal-overlay" v-if="showDeleteModal" @click.self="showDeleteModal = false">
+                <div class="modal modal-danger">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-exclamation-triangle"></i> Löschen bestätigen</h3>
+                    </div>
+                    <div class="modal-body">
+                        <p>Bist du sicher, dass du <strong>{{ deleteTarget?.label }}</strong> löschen möchtest?</p>
+                        <p class="hint">Diese Aktion kann nicht rückgängig gemacht werden.</p>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" @click="showDeleteModal = false">Abbrechen</button>
+                        <button class="btn btn-danger" @click="confirmDelete">Löschen</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ Edit Group Modal ═══ -->
+            <div class="modal-overlay" v-if="showGroupEditModal" @click.self="showGroupEditModal = false">
+                <div class="modal">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-edit"></i> Gruppe bearbeiten</h3>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>Label</label>
+                            <input type="text" v-model="editingGroup.label" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label>Beschreibung</label>
+                            <input type="text" v-model="editingGroup.description" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label>Farbe</label>
+                            <input type="color" v-model="editingGroup.color" class="form-input form-input-color">
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" @click="showGroupEditModal = false">Abbrechen</button>
+                        <button class="btn btn-success" @click="saveGroupEdit">Speichern</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ Toast ═══ -->
+            <transition name="toast">
+                <div class="toast" v-if="toast.visible" :class="'toast-' + toast.type">
+                    <i :class="toast.type === 'error' ? 'fas fa-exclamation-circle' : 'fas fa-check-circle'"></i>
+                    <span>{{ toast.message }}</span>
+                </div>
+            </transition>
+        </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
